@@ -78,7 +78,7 @@ if os.path.exists(f'{R}/.git'):
     !cd {R} && git fetch -q --depth 1 origin {BRANCH} && git reset -q --hard FETCH_HEAD
 else:
     !git clone -q --depth 1 --filter=blob:none --sparse -b {BRANCH} "{url}" {R}
-!cd {R} && git sparse-checkout set lib3d tools models rigs {SLUG} && git log --oneline -1
+!cd {R} && git sparse-checkout set lib3d tools models rigs assets {SLUG} && git log --oneline -1
 """)
 code("""
 #@title 5. Cek GPU dipakai EEVEE (harus NVIDIA/Tesla, BUKAN llvmpipe)
