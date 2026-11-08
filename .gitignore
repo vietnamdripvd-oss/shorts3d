@@ -1,0 +1,7 @@
+*.blend1
+*.blend@
+**/render/frames*/
+**/frames_*/
+__pycache__/
+test_e2e/scene.blend
+*.tmp.png
