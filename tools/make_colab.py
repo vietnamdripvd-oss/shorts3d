@@ -94,10 +94,44 @@ os.makedirs(f'{WORK}/{SLUG}', exist_ok=True)
 !cd {R} && {BLENDER} -b -P {BUILD_SCRIPT} -- --out "{BLEND}" 2>&1 | grep -E "TRIS|saved|Error|Traceback"
 """)
 code("""
-#@title 7. Render per chunk (RESUMABLE) + waktu per frame
-import subprocess, time, json, glob, statistics
-FR = f'{WORK}/{SLUG}/frames_{RES_PCT}_s{SAMPLES}'
+#@title 7. Render per chunk (RESUMABLE) — frame di disk lokal, backup ke Drive
+import subprocess, time, json, glob, statistics, shutil
+FR = f'/content/frames/{SLUG}/frames_{RES_PCT}_s{SAMPLES}'          # lokal: cepat & stabil
+FR_BAK = f'{WORK}/{SLUG}/frames_{RES_PCT}_s{SAMPLES}'               # Drive: cadangan buat resume
 os.makedirs(FR, exist_ok=True)
+
+def drive_ok():
+    try:
+        os.listdir(WORK); return True
+    except OSError:
+        if USE_DRIVE:
+            try:
+                drive.mount('/content/drive', force_remount=True); os.listdir(WORK); return True
+            except Exception as e:
+                print('  (Drive putus, lanjut tanpa backup:', e, ')')
+        return False
+
+def backup(names):
+    if not USE_DRIVE or not drive_ok():
+        return
+    try:
+        os.makedirs(FR_BAK, exist_ok=True)
+        for n in names:
+            if not os.path.exists(f'{FR_BAK}/{n}'):
+                shutil.copy2(f'{FR}/{n}', f'{FR_BAK}/{n}')
+        shutil.copy2(f'{FR}/timing.jsonl', f'{FR_BAK}/timing.jsonl')
+    except OSError as e:
+        print('  (backup Drive gagal, aman, lanjut:', e, ')')
+
+# resume: tarik frame yang sudah ada di Drive ke lokal
+if USE_DRIVE and drive_ok() and os.path.isdir(FR_BAK):
+    got = 0
+    for p in glob.glob(f'{FR_BAK}/*.png'):
+        n = os.path.basename(p)
+        if not os.path.exists(f'{FR}/{n}'):
+            shutil.copy2(p, f'{FR}/{n}'); got += 1
+    print(f'resume: {got} frame ditarik dari Drive')
+
 info = subprocess.run([BLENDER, '-b', BLEND, '--python-expr',
     'import bpy;s=bpy.context.scene;print("RANGE",s.frame_start,s.frame_end)'], capture_output=True, text=True).stdout
 fs, fe = [int(x) for x in [l for l in info.splitlines() if l.startswith('RANGE')][0].split()[1:]]
@@ -106,13 +140,15 @@ print(f'frame {fs}-{fe}: {fe-fs+1-len(todo)} sudah ada, {len(todo)} sisa')
 t0 = time.time()
 for a in range(fs, fe + 1, CHUNK):
     b = min(a + CHUNK - 1, fe)
-    if all(os.path.exists(f'{FR}/{f:05d}.png') for f in range(a, b + 1)):
+    names = [f'{f:05d}.png' for f in range(a, b + 1)]
+    if all(os.path.exists(f'{FR}/{n}') for n in names):
         continue
     p = subprocess.run([BLENDER, '-b', BLEND, '-P', f'{R}/tools/render_frames.py', '--',
                         '--out', FR, '--start', str(a), '--end', str(b),
                         '--pct', str(RES_PCT), '--samples', str(SAMPLES)], capture_output=True, text=True)
     if p.returncode != 0:
         print(p.stdout[-2000:], p.stderr[-2000:]); raise SystemExit('render gagal')
+    backup(names)
     done = len(glob.glob(f'{FR}/*.png'))
     print(f'  chunk {a}-{b} ok | {done}/{fe-fs+1} frame | {time.time()-t0:.0f}s')
 secs = [json.loads(l)['sec'] for l in open(f'{FR}/timing.jsonl')]
@@ -121,12 +157,19 @@ if secs:
           f'min {min(secs):.2f}s, max {max(secs):.2f}s ({len(secs)} frame)')
 """)
 code("""
-#@title 8. Encode mp4 (+ audio kalau ada) & download
-os.makedirs(f'{WORK}/{SLUG}/render', exist_ok=True)
-MP4 = f'{WORK}/{SLUG}/render/{SLUG}_{RES_PCT}.mp4'
+#@title 8. Encode mp4 (lokal) + audio kalau ada, download, salin ke Drive
+import shutil
+MP4 = f'/content/{SLUG}_{RES_PCT}.mp4'
 aud = f'{R}/{AUDIO}' if AUDIO else ''
 !bash {R}/tools/encode.sh "{FR}" "{MP4}" {aud}
 !ffprobe -v error -show_entries stream=width,height,r_frame_rate:format=duration -of compact "{MP4}"
+try:
+    if USE_DRIVE and drive_ok():
+        os.makedirs(f'{WORK}/{SLUG}/render', exist_ok=True)
+        shutil.copy2(MP4, f'{WORK}/{SLUG}/render/')
+        print('disalin ke Drive:', f'{WORK}/{SLUG}/render/')
+except OSError as e:
+    print('(salin ke Drive gagal, file tetap di-download)', e)
 from google.colab import files
 files.download(MP4)
 """)
