@@ -78,6 +78,8 @@ lalu muter 360°, kedip 3x, lompat, lambai, mulut gerak. Maskot ≈ 4,4k tris (t
 | Mesin | Renderer GL | Detik/frame | 5 detik (150 fr) | 60 detik (1800 fr) |
 |---|---|---|---|---|
 | Cloud CPU 4 vCPU (session ini) | Mesa llvmpipe | ~20 (median 20,4; min 16,4; frame-1 incl. compile 21–45) | ~50 menit | ~10 jam |
-| Colab T4 GPU | NVIDIA EGL | belum diukur — jalankan notebook, angka keluar di cell 7 | | |
+| Colab T4 GPU @ 540x960, 8 samples | Tesla T4 (NVIDIA EGL) | **0,32** (median; frame-1 compile 29 s) | 87 detik total | ~10 menit (perkiraan) |
+| Colab T4 GPU @ 1080x1920, 16 samples | Tesla T4 | belum diukur, perkiraan 1–2 | | ~30–60 menit (perkiraan) |
+| Cloud CPU @ 540x960, 8 samples | llvmpipe | ~12 | ~30 menit | ~6 jam |
 
 Frame pertama tiap proses lebih lama (compile shader), jadi `CHUNK` di notebook dibuat 30 frame.
