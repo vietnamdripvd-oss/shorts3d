@@ -23,78 +23,101 @@ BODY_R = 0.8
 # ---------------------------------------------------------------------------
 
 
+def _on_surface(x, z, r=BODY_R, sy=0.95):
+    """y permukaan depan badan (ellipsoid) di titik x,z."""
+    return -sy * math.sqrt(max(r * r - x * x - z * z, 0.0))
+
+
 def build():
     root = bpy.data.objects.new("dengung_root", None)
     bpy.context.scene.collection.objects.link(root)
     parts = []
 
-    body = core.sphere("body", r=BODY_R, seg=16, rings=10, loc=(0, 0, 0))
+    # badan: sphere smooth (tanpa subsurf biar < 5k tris), belang = material per face
+    body = core.sphere("body", r=BODY_R, seg=20, rings=18, loc=(0, 0, 0))
     body.scale = (1.0, 0.95, 0.95)
-    core.subsurf(body, 1)
     toon.apply_toon(body, BODY, outline=0.025, rim=0.2)
+    stripe_mat = toon.toon_material("toon_stripe", STRIPE)
+    body.data.materials.append(stripe_mat)
+    si = list(body.data.materials).index(stripe_mat)
+    for poly in body.data.polygons:
+        z = poly.center.z
+        if -0.44 <= z <= -0.26 or -0.70 <= z <= -0.54:
+            poly.material_index = si
+    # outline material tetap paling akhir (material_offset solidify)
+    om = toon.outline_material()
+    mats = body.data.materials
+    if mats[len(mats) - 1] != om:
+        oi = list(mats).index(om)
+        mats.pop(index=oi)
+        mats.append(om)
+        body.modifiers["toon_outline"].material_offset = len(mats) - 1
     parts.append(body)
 
-    # 2 belang (torus melingkar di badan)
-    for z, R in ((0.28, 0.76), (-0.18, 0.79)):
-        s = core.torus(f"stripe_{z}", R=R, r=0.085, maj=20, minr=6, loc=(0, 0, z))
-        s.scale = (1.0, 0.95, 1.0)
-        toon.apply_toon(s, STRIPE, outline=0)
-        parts.append(s)
-
-    # mata sedih: oval gepeng + alis miring ke dalam
+    # mata sedih + alis miring
     for side in (1, -1):
-        x = 0.28 * side
-        e = core.sphere(f"eye_{side}", r=0.12, seg=12, rings=8, loc=(x, -0.68, 0.12))
-        e.scale = (1.0, 0.5, 1.1)
+        x = 0.27 * side
+        y = _on_surface(x, 0.15)
+        e = core.sphere(f"eye_{side}", r=0.13, seg=12, rings=8, loc=(x, y + 0.03, 0.15))
+        e.scale = (1.0, 0.45, 1.15)
         e.data.materials.append(toon.flat_material("eye_white", "#ffffff"))
         toon.add_outline(e, 0.012)
-        p = core.sphere(f"pupil_{side}", r=0.06, seg=8, rings=5, loc=(x, -0.72, 0.10))
-        p.scale = (1, 0.5, 1.2)
+        p = core.sphere(f"pupil_{side}", r=0.065, seg=10, rings=6, loc=(x - 0.02 * side, y - 0.03, 0.12))
+        p.scale = (1, 0.45, 1.2)
         p.data.materials.append(toon.flat_material("pupil", "#1a1020"))
-        brow = core.cube(f"brow_{side}", size=1.0, loc=(x, -0.7, 0.32))
-        brow.scale = (0.2, 0.05, 0.035)
-        brow.rotation_euler = (0, 0, -side * 20 * DEG)  # dalam naik = sedih
+        hl = core.sphere(f"eye_hl_{side}", r=0.022, seg=6, rings=4, loc=(x + 0.02, y - 0.06, 0.17))
+        hl.data.materials.append(toon.flat_material("eye_hl", "#ffffff"))
+        by = _on_surface(x, 0.36)
+        brow = core.cube(f"brow_{side}", size=1.0, loc=(x, by - 0.01, 0.36), bevel=0.3, seg=2)
+        brow.scale = (0.17, 0.04, 0.035)
+        brow.rotation_euler = (0, 0, 0)
+        brow.rotation_euler = (0, side * 18 * DEG, 0)   # ujung dalam naik = sedih
         toon.apply_toon(brow, STRIPE, outline=0)
-        parts += [e, p, brow]
+        parts += [e, p, hl, brow]
 
-        # air mata: bulatan + ujung lancip ke bawah
-        t = core.sphere(f"tear_{side}", r=0.055, seg=8, rings=5, loc=(x, -0.76, -0.04))
-        tip = core.cone(f"tear_tip_{side}", r1=0.055, r2=0.0, depth=0.16, verts=8, loc=(x, -0.76, -0.16))
-        tip.rotation_euler = (math.pi, 0, 0)
-        toon.apply_toon(t, TEAR, outline=0)
-        toon.apply_toon(tip, TEAR, outline=0)
-        parts += [t, tip]
+        # air mata: tetesan gepeng nempel di pipi
+        tx = 0.29 * side
+        t = core.sphere(f"tear_{side}", r=0.07, seg=10, rings=6, loc=(tx, _on_surface(tx, -0.04) - 0.01, -0.04))
+        t.scale = (0.8, 0.35, 1.6)
+        t.data.materials.append(toon.flat_material("tear", TEAR))
+        toon.add_outline(t, 0.008)
+        parts.append(t)
 
     # mulut: bulat cemberut kecil
-    m = core.torus("mouth", R=0.06, r=0.025, maj=12, minr=6, loc=(0, -0.76, -0.28))
+    m = core.torus("mouth", R=0.055, r=0.022, maj=12, minr=6, loc=(0, _on_surface(0, -0.12) - 0.005, -0.12))
     m.rotation_euler = (90 * DEG, 0, 0)
-    m.data.materials.append(toon.flat_material("mouth", "#8a3a2a"))
+    m.scale = (1.0, 1.0, 0.8)
+    m.data.materials.append(toon.flat_material("mouth", "#7a2a22"))
     parts.append(m)
 
-    # antena
+    # antena: batang nancep di ubun-ubun, condong keluar, bola di ujung
     for side in (1, -1):
-        a = core.cylinder(f"antenna_{side}", r=0.025, depth=0.35, verts=6,
-                          loc=(0.22 * side, 0, 1.0))
-        a.rotation_euler = (0, -side * 18 * DEG, 0)
-        toon.apply_toon(a, ANTENNA, outline=0)
-        ball = core.sphere(f"antenna_tip_{side}", r=0.08, seg=8, rings=5,
-                           loc=(0.29 * side, 0, 1.17))
-        toon.apply_toon(ball, ANTENNA, outline=0.01)
+        tilt = 22 * DEG * side
+        base = Vector((0.18 * side, 0.0, 0.70))
+        L = 0.42
+        d = Vector((math.sin(tilt), 0, math.cos(tilt)))
+        mid = base + d * (L / 2)
+        a = core.cylinder(f"antenna_{side}", r=0.028, depth=L, verts=6, loc=tuple(mid))
+        a.rotation_euler = (0, tilt, 0)
+        toon.apply_toon(a, ANTENNA, outline=0.008)
+        tip = base + d * (L + 0.06)
+        ball = core.sphere(f"antenna_tip_{side}", r=0.09, seg=10, rings=6, loc=tuple(tip))
+        toon.apply_toon(ball, BODY, outline=0.012)
         parts += [a, ball]
 
-    # sayap
+    # sayap: elips tipis di belakang, nongol ke samping & atas
     for side in (1, -1):
-        w = core.sphere(f"wing_{side}", r=0.5, seg=12, rings=8, loc=(0.6 * side, 0.1, 0.05))
-        w.scale = (0.18, 0.6, 0.85)
-        w.rotation_euler = (0, side * 12 * DEG, 0)
+        w = core.sphere(f"wing_{side}", r=1.0, seg=14, rings=8, loc=(0.78 * side, 0.35, 0.3))
+        w.scale = (0.42, 0.05, 0.3)
+        w.rotation_euler = (0, -side * 30 * DEG, side * 20 * DEG)
         toon.apply_toon(w, WING, outline=0.012)
         parts.append(w)
 
     # kaki
     for side in (1, -1):
-        f = core.sphere(f"foot_{side}", r=0.2, seg=10, rings=6, loc=(0.3 * side, -0.1, -0.78))
+        f = core.sphere(f"foot_{side}", r=0.2, seg=10, rings=6, loc=(0.3 * side, -0.1, -0.76))
         f.scale = (1, 1.2, 0.6)
-        toon.apply_toon(f, BODY, outline=0.015)
+        toon.apply_toon(f, STRIPE, outline=0.015)
         parts.append(f)
 
     for o in parts:
@@ -109,7 +132,7 @@ def main():
     toon.setup_world(sc, "#7cc4ff", ambient=0.3)
     toon.add_sun(rot=(55 * DEG, 10 * DEG, 35 * DEG), energy=4.0)
     root, parts = build()
-    cam, tgt = camera.add_camera(loc=(0, -6.2, 0.6), target=(0, 0, 0.1), lens=50)
+    cam, tgt = camera.add_camera(loc=(0, -6.2, 0.6), target=(0, 0, 0.15), lens=36)
 
     print("TRIS:", core.tri_count(parts))
 
