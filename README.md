@@ -28,6 +28,7 @@ tools/
   gpu_info.py       cek renderer GL yang dipakai (NVIDIA vs llvmpipe)
   install_local.sh  install Blender 4.2.3 + ffmpeg + EGL di Ubuntu
 render_colab.ipynb  render EEVEE di Colab GPU (resume via Google Drive)
+  make_colab.py     generator notebook di atas
 test_e2e/         tes TAHAP 0 (scene.py, render.sh, render/test_e2e.mp4)
 <slug>/           per video: idea.md, script.md, storyboard.md, timeline.json, vo/, anim.py, render.sh, render/
 ```
@@ -49,8 +50,10 @@ Pakai: `toon.apply_toon(obj, "#ff8a3d", outline=0.02, rim=0.25)`; benda tanpa gr
 
 ## Instalasi
 
-**Opsi 1 — Colab GPU (utama, buat final):** buka `render_colab.ipynb` di Colab, Runtime = T4 GPU,
-isi `REPO_URL` (+ `GH_TOKEN` kalau private), *Run all*. Frame disimpan di Google Drive →
+**Opsi 1 — Colab GPU (utama, buat final):** buka `render_colab.ipynb` di Colab
+(File → Open notebook → GitHub → `vietnamdripvd-oss/shorts3d`, branch `main`), Runtime = T4 GPU,
+simpan token GitHub read-only di Colab Secrets sebagai `GH_TOKEN`, *Run all*.
+Default tes: `RES_PCT=50` (540x960), `SAMPLES=8`; final: 100 / 16. Notebook di-generate oleh `tools/make_colab.py`. Frame disimpan di Google Drive →
 kalau sesi putus, *Run all* lagi, frame yang sudah ada di-skip. Cell 5 mengecek EEVEE beneran pakai GPU
 (harus muncul NVIDIA/Tesla, bukan `llvmpipe`).
 
