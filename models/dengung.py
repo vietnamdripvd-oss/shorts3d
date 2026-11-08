@@ -1,4 +1,4 @@
-"""Maskot 'dengung' — lebah bulat low-poly, toon shaded. ORIGINAL (bukan karakter yang sudah ada).
+"""Maskot 'dengung' — anak chibi berkostum lebah, low-poly, toon shaded. ORIGINAL (bukan karakter yang sudah ada).
 
 Jalan sendiri:
   blender -b -P models/dengung.py -- --preview            # build + render turnaround 4 sudut
@@ -14,115 +14,167 @@ from lib3d.core import DEG
 from mathutils import Vector
 
 # ---- PARAMETER -------------------------------------------------------------
-BODY = "#ffc83d"      # kuning madu
-STRIPE = "#3a2412"    # coklat gelap
-WING = "#e8f7ff"      # biru pucat transparan-ish (opaque di toon)
-TEAR = "#9fe0ff"
-ANTENNA = "#3a2412"
-BODY_R = 0.8
+HOOD = "#ffc83d"      # tudung & baju kuning madu
+STRIPE = "#4a2c16"    # coklat belang / trim
+SKIN = "#ffd9c2"
+BLUSH = "#ff9a9a"
+WING = "#eaf6ff"
+TEAR = "#8fd8ff"
+EYE = "#1e1420"
+HEAD_Z = 1.35         # tinggi pusat kepala (kaki di z=0)
+HEAD_R = 0.72         # kepala gede = chibi
 # ---------------------------------------------------------------------------
 
 
-def _on_surface(x, z, r=BODY_R, sy=0.95):
-    """y permukaan depan badan (ellipsoid) di titik x,z."""
-    return -sy * math.sqrt(max(r * r - x * x - z * z, 0.0))
+# ellipsoid muka (muka nongol dari lubang tudung)
+FACE_C = Vector((0, -0.33, HEAD_Z - 0.06))
+FACE_R = Vector((0.56, 0.36, 0.50))
+
+
+def face_y(x, z, lift=0.0):
+    """y permukaan depan muka di titik (x, z)."""
+    u = 1 - (x / FACE_R.x) ** 2 - ((z - FACE_C.z) / FACE_R.z) ** 2
+    return FACE_C.y - FACE_R.y * math.sqrt(max(u, 0.0)) - lift
+
+
+def stripes(obj, bands, mat_name="toon_stripe"):
+    """Belang = material per face berdasarkan z lokal (band = (zmin, zmax))."""
+    m = toon.toon_material(mat_name, STRIPE)
+    obj.data.materials.append(m)
+    si = list(obj.data.materials).index(m)
+    for poly in obj.data.polygons:
+        if any(lo <= poly.center.z <= hi for lo, hi in bands):
+            poly.material_index = si
+    # outline material harus terakhir (material_offset Solidify)
+    om = toon.outline_material()
+    mats = obj.data.materials
+    if om.name in [x.name for x in mats if x]:
+        mats.pop(index=[x.name if x else "" for x in mats].index(om.name))
+        mats.append(om)
+        obj.modifiers["toon_outline"].material_offset = len(mats) - 1
 
 
 def build():
     root = bpy.data.objects.new("dengung_root", None)
     bpy.context.scene.collection.objects.link(root)
-    parts = []
+    P = []
 
-    # badan: sphere smooth (tanpa subsurf biar < 5k tris), belang = material per face
-    body = core.sphere("body", r=BODY_R, seg=20, rings=18, loc=(0, 0, 0))
-    body.scale = (1.0, 0.95, 0.95)
-    toon.apply_toon(body, BODY, outline=0.025, rim=0.2)
-    stripe_mat = toon.toon_material("toon_stripe", STRIPE)
-    body.data.materials.append(stripe_mat)
-    si = list(body.data.materials).index(stripe_mat)
-    for poly in body.data.polygons:
-        z = poly.center.z
-        if -0.44 <= z <= -0.26 or -0.70 <= z <= -0.54:
-            poly.material_index = si
-    # outline material tetap paling akhir (material_offset solidify)
-    om = toon.outline_material()
-    mats = body.data.materials
-    if mats[len(mats) - 1] != om:
-        oi = list(mats).index(om)
-        mats.pop(index=oi)
-        mats.append(om)
-        body.modifiers["toon_outline"].material_offset = len(mats) - 1
-    parts.append(body)
+    # ---- kepala: tudung + muka --------------------------------------------
+    hood = core.sphere("hood", r=HEAD_R, seg=16, rings=10, loc=(0, 0, HEAD_Z))
+    hood.scale = (1.05, 0.88, 0.95)
+    toon.apply_toon(hood, HOOD, outline=0.025, rim=0.2)
+    face = core.sphere("face", r=1.0, seg=16, rings=10, loc=tuple(FACE_C))
+    face.scale = tuple(FACE_R)
+    toon.apply_toon(face, SKIN, outline=0.015)
+    # trim tudung di sekeliling muka
+    trim = core.torus("hood_trim", R=0.47, r=0.07, maj=18, minr=5,
+                      loc=(0, face_y(0.47, FACE_C.z) + 0.04, FACE_C.z))
+    trim.rotation_euler = (90 * DEG, 0, 0)
+    trim.scale = (1.0, 0.98, 1.0)
+    toon.apply_toon(trim, STRIPE, outline=0.012)
+    P += [hood, face, trim]
 
-    # mata sedih + alis miring
-    for side in (1, -1):
-        x = 0.27 * side
-        y = _on_surface(x, 0.15)
-        e = core.sphere(f"eye_{side}", r=0.13, seg=12, rings=8, loc=(x, y + 0.03, 0.15))
-        e.scale = (1.0, 0.45, 1.15)
-        e.data.materials.append(toon.flat_material("eye_white", "#ffffff"))
-        toon.add_outline(e, 0.012)
-        p = core.sphere(f"pupil_{side}", r=0.065, seg=10, rings=6, loc=(x - 0.02 * side, y - 0.03, 0.12))
-        p.scale = (1, 0.45, 1.2)
-        p.data.materials.append(toon.flat_material("pupil", "#1a1020"))
-        hl = core.sphere(f"eye_hl_{side}", r=0.022, seg=6, rings=4, loc=(x + 0.02, y - 0.06, 0.17))
+    # telinga tudung: bola kecil coklat di samping
+    for sd in (1, -1):
+        ear = core.sphere(f"hood_puff_{sd}", r=0.17, seg=8, rings=6,
+                          loc=(0.68 * sd, -0.05, HEAD_Z - 0.18))
+        ear.scale = (0.7, 1.0, 1.0)
+        toon.apply_toon(ear, STRIPE, outline=0.012)
+        P.append(ear)
+
+    # ---- muka -------------------------------------------------------------
+    ez = FACE_C.z + 0.04
+    for sd in (1, -1):
+        x = 0.2 * sd
+        # mata: oval hitam tegak + highlight
+        e = core.sphere(f"eye_{sd}", r=0.075, seg=8, rings=6, loc=(x, face_y(x, ez, -0.01), ez))
+        e.scale = (0.85, 0.4, 1.25)
+        e.data.materials.append(toon.flat_material("eye", EYE))
+        hl = core.sphere(f"eye_hl_{sd}", r=0.024, seg=6, rings=4,
+                         loc=(x + 0.025, face_y(x, ez + 0.04) - 0.04, ez + 0.04))
         hl.data.materials.append(toon.flat_material("eye_hl", "#ffffff"))
-        by = _on_surface(x, 0.36)
-        brow = core.cube(f"brow_{side}", size=1.0, loc=(x, by - 0.01, 0.36), bevel=0.3, seg=2)
-        brow.scale = (0.17, 0.04, 0.035)
-        brow.rotation_euler = (0, 0, 0)
-        brow.rotation_euler = (0, side * 18 * DEG, 0)   # ujung dalam naik = sedih
+        # alis sedih (ujung dalam naik)
+        bz = ez + 0.17
+        brow = core.cube(f"brow_{sd}", size=1.0, loc=(x, face_y(x, bz, 0.005), bz), bevel=0.3, seg=2)
+        brow.scale = (0.12, 0.03, 0.025)
+        brow.rotation_euler = (0, sd * 20 * DEG, 0)
         toon.apply_toon(brow, STRIPE, outline=0)
-        parts += [e, p, hl, brow]
+        # pipi merah
+        cx, cz = 0.33 * sd, FACE_C.z - 0.12
+        bl = core.sphere(f"blush_{sd}", r=0.08, seg=10, rings=6, loc=(cx, face_y(cx, cz, -0.02), cz))
+        bl.scale = (1.0, 0.3, 0.6)
+        bl.data.materials.append(toon.flat_material("blush", BLUSH))
+        # air mata: 2 tetes di bawah mata
+        tears = []
+        for i, (dz, r) in enumerate(((-0.12, 0.04), (-0.24, 0.032))):
+            tx, tz = x + 0.03 * sd, ez + dz
+            t = core.sphere(f"tear_{sd}_{i}", r=r, seg=8, rings=6, loc=(tx, face_y(tx, tz, 0.005), tz))
+            t.scale = (0.8, 0.4, 1.4)
+            t.data.materials.append(toon.flat_material("tear", TEAR))
+            tears.append(t)
+        P += [e, hl, brow, bl] + tears
 
-        # air mata: tetesan gepeng nempel di pipi
-        tx = 0.29 * side
-        t = core.sphere(f"tear_{side}", r=0.07, seg=10, rings=6, loc=(tx, _on_surface(tx, -0.04) - 0.01, -0.04))
-        t.scale = (0.8, 0.35, 1.6)
-        t.data.materials.append(toon.flat_material("tear", TEAR))
-        toon.add_outline(t, 0.008)
-        parts.append(t)
-
-    # mulut: bulat cemberut kecil
-    m = core.torus("mouth", R=0.055, r=0.022, maj=12, minr=6, loc=(0, _on_surface(0, -0.12) - 0.005, -0.12))
+    # mulut: cemberut kecil (torus gepeng)
+    mz = FACE_C.z - 0.2
+    m = core.torus("mouth", R=0.05, r=0.018, maj=12, minr=6, loc=(0, face_y(0, mz, 0.0), mz))
     m.rotation_euler = (90 * DEG, 0, 0)
-    m.scale = (1.0, 1.0, 0.8)
+    m.scale = (1.2, 1.0, 0.7)
     m.data.materials.append(toon.flat_material("mouth", "#7a2a22"))
-    parts.append(m)
+    P.append(m)
 
-    # antena: batang nancep di ubun-ubun, condong keluar, bola di ujung
-    for side in (1, -1):
-        tilt = 22 * DEG * side
-        base = Vector((0.18 * side, 0.0, 0.70))
-        L = 0.42
+    # ---- antena dari puncak tudung -----------------------------------------
+    top = HEAD_Z + HEAD_R * 0.95 - 0.05
+    for sd in (1, -1):
+        tilt = 25 * DEG * sd
+        base = Vector((0.22 * sd, 0.0, top - 0.06))
+        L = 0.38
         d = Vector((math.sin(tilt), 0, math.cos(tilt)))
-        mid = base + d * (L / 2)
-        a = core.cylinder(f"antenna_{side}", r=0.028, depth=L, verts=6, loc=tuple(mid))
+        a = core.cylinder(f"antenna_{sd}", r=0.03, depth=L, verts=6, loc=tuple(base + d * (L / 2)))
         a.rotation_euler = (0, tilt, 0)
-        toon.apply_toon(a, ANTENNA, outline=0.008)
-        tip = base + d * (L + 0.06)
-        ball = core.sphere(f"antenna_tip_{side}", r=0.09, seg=10, rings=6, loc=tuple(tip))
-        toon.apply_toon(ball, BODY, outline=0.012)
-        parts += [a, ball]
+        toon.apply_toon(a, STRIPE, outline=0)
+        ball = core.sphere(f"antenna_tip_{sd}", r=0.11, seg=8, rings=6, loc=tuple(base + d * (L + 0.07)))
+        toon.apply_toon(ball, HOOD, outline=0.012)
+        P += [a, ball]
 
-    # sayap: elips tipis di belakang, nongol ke samping & atas
-    for side in (1, -1):
-        w = core.sphere(f"wing_{side}", r=1.0, seg=14, rings=8, loc=(0.78 * side, 0.35, 0.3))
-        w.scale = (0.42, 0.05, 0.3)
-        w.rotation_euler = (0, -side * 30 * DEG, side * 20 * DEG)
-        toon.apply_toon(w, WING, outline=0.012)
-        parts.append(w)
+    # ---- badan kecil belang -----------------------------------------------
+    body = core.sphere("body", r=0.42, seg=14, rings=10, loc=(0, 0, 0.5))
+    body.scale = (1.0, 0.9, 1.05)
+    toon.apply_toon(body, HOOD, outline=0.02)
+    stripes(body, ((-0.2, -0.06), (0.1, 0.24)))
+    P.append(body)
 
-    # kaki
-    for side in (1, -1):
-        f = core.sphere(f"foot_{side}", r=0.2, seg=10, rings=6, loc=(0.3 * side, -0.1, -0.76))
-        f.scale = (1, 1.2, 0.6)
-        toon.apply_toon(f, STRIPE, outline=0.015)
-        parts.append(f)
+    # tangan pendek
+    for sd in (1, -1):
+        arm = core.sphere(f"arm_{sd}", r=0.12, seg=8, rings=6, loc=(0.44 * sd, -0.04, 0.58))
+        arm.scale = (0.9, 0.9, 1.5)
+        arm.rotation_euler = (0, sd * 25 * DEG, 0)
+        toon.apply_toon(arm, HOOD, outline=0.012)
+        P.append(arm)
 
-    for o in parts:
+    # kaki gendut
+    for sd in (1, -1):
+        leg = core.sphere(f"leg_{sd}", r=0.15, seg=8, rings=6, loc=(0.17 * sd, -0.04, 0.13))
+        leg.scale = (1.0, 1.1, 1.0)
+        toon.apply_toon(leg, HOOD, outline=0.012)
+        P.append(leg)
+
+    # sayap di punggung
+    for sd in (1, -1):
+        w = core.sphere(f"wing_{sd}", r=1.0, seg=10, rings=6, loc=(0.42 * sd, 0.42, 0.78))
+        w.scale = (0.34, 0.04, 0.26)
+        w.rotation_euler = (0, -sd * 25 * DEG, -sd * 25 * DEG)
+        toon.apply_toon(w, WING, outline=0.01)
+        P.append(w)
+
+    # sengat
+    st = core.cone("stinger", r1=0.08, r2=0.0, depth=0.18, verts=8, loc=(0, 0.42, 0.33))
+    st.rotation_euler = (-90 * DEG, 0, 0)
+    toon.apply_toon(st, STRIPE, outline=0.008)
+    P.append(st)
+
+    for o in P:
         o.parent = root
-    return root, parts
+    return root, P
 
 
 def main():
@@ -130,9 +182,9 @@ def main():
     sc = core.reset_scene()
     toon.setup_render(sc, res=(540, 960), fps=30, samples=8, freestyle=True)
     toon.setup_world(sc, "#7cc4ff", ambient=0.3)
-    toon.add_sun(rot=(55 * DEG, 10 * DEG, 35 * DEG), energy=4.0)
+    toon.add_sun(rot=(50 * DEG, 0, 30 * DEG), energy=4.0)
     root, parts = build()
-    cam, tgt = camera.add_camera(loc=(0, -6.2, 0.6), target=(0, 0, 0.15), lens=36)
+    cam, tgt = camera.add_camera(loc=(0, -7.0, 1.4), target=(0, 0, 1.0), lens=40)
 
     print("TRIS:", core.tri_count(parts))
 
